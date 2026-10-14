@@ -59,6 +59,15 @@ public class RabbitAdminService {
         new Binding(cola, Binding.DestinationType.QUEUE, exchange, clave, null));
   }
 
+  // La instrucción de EP3 pide crear Y eliminar colas, exchanges y bindings.
+  // Misma normalización que crearBinding (null -> "") para que el Binding
+  // calce con el declarado; removeBinding es idempotente (no falla si no existe).
+  public void eliminarBinding(String cola, String exchange, String routingKey) {
+    String clave = routingKey == null ? "" : routingKey;
+    rabbitAdmin.removeBinding(
+        new Binding(cola, Binding.DestinationType.QUEUE, exchange, clave, null));
+  }
+
   public QueueInfo infoCola(String nombre) {
     var info = rabbitAdmin.getQueueInfo(nombre);
     if (info == null) {
