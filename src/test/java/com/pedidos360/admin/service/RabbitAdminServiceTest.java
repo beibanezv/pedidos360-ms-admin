@@ -55,4 +55,24 @@ class RabbitAdminServiceTest {
 
     assertEquals(3, service.purgarCola("c"));
   }
+
+  @Test
+  void eliminarBinding_normalizaRoutingKeyNulo() {
+    service.eliminarBinding("c", "e", null);
+
+    var captor = ArgumentCaptor.forClass(org.springframework.amqp.core.Binding.class);
+    verify(rabbitAdmin).removeBinding(captor.capture());
+    assertEquals("c", captor.getValue().getDestination());
+    assertEquals("e", captor.getValue().getExchange());
+    assertEquals("", captor.getValue().getRoutingKey());
+  }
+
+  @Test
+  void eliminarBinding_conRoutingKey_laConserva() {
+    service.eliminarBinding("c", "e", "orden.creada");
+
+    var captor = ArgumentCaptor.forClass(org.springframework.amqp.core.Binding.class);
+    verify(rabbitAdmin).removeBinding(captor.capture());
+    assertEquals("orden.creada", captor.getValue().getRoutingKey());
+  }
 }

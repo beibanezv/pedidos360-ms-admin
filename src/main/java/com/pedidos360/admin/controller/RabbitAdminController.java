@@ -50,6 +50,14 @@ public class RabbitAdminController {
     return ResponseEntity.status(HttpStatus.CREATED).build();
   }
 
+  @DeleteMapping("/bindings")
+  public ResponseEntity<Void> eliminarBinding(@Valid @RequestBody CrearBindingRequest req) {
+    String clave =
+        req.routingKey() == null || req.routingKey().isBlank() ? null : req.routingKey().trim();
+    admin.eliminarBinding(req.cola().trim(), req.exchange().trim(), clave);
+    return ResponseEntity.noContent().build();
+  }
+
   @GetMapping("/queues/{nombre}")
   public QueueInfo infoCola(@PathVariable String nombre) {
     return admin.infoCola(nombre);
