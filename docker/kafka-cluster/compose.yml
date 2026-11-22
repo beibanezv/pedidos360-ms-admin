@@ -1,0 +1,142 @@
+name: p360-kafka
+
+x-zookeeper: &zookeeper
+  # El mismo binario distribuido con Kafka incluye ZooKeeper; evita otra imagen.
+  image: ${KAFKA_IMAGE:-confluentinc/cp-kafka:7.6.0}
+  restart: unless-stopped
+  environment: &zk-env
+    KAFKA_HEAP_OPTS: -Xms128m -Xmx192m
+    JAVA_TOOL_OPTIONS: -XX:ActiveProcessorCount=2
+  entrypoint: ["/bin/bash", "-ec"]
+  command:
+    - |
+      mkdir -p /var/lib/zookeeper/data /var/lib/zookeeper/log
+      printf '%s\n' "$$ZOOKEEPER_SERVER_ID" > /var/lib/zookeeper/data/myid
+      cat > /tmp/zoo.properties <<'EOF'
+      tickTime=2000
+      initLimit=10
+      syncLimit=5
+      dataDir=/var/lib/zookeeper/data
+      dataLogDir=/var/lib/zookeeper/log
+      clientPort=2181
+      autopurge.snapRetainCount=3
+      autopurge.purgeInterval=1
+      server.1=zk1:2888:3888
+      server.2=zk2:2888:3888
+      server.3=zk3:2888:3888
+      EOF
+      exec zookeeper-server-start /tmp/zoo.properties
+
+x-kafka: &kafka
+  image: ${KAFKA_IMAGE:-confluentinc/cp-kafka:7.6.0}
+  restart: unless-stopped
+  depends_on: [zk1, zk2, zk3]
+  environment: &kafka-env
+    KAFKA_ZOOKEEPER_CONNECT: zk1:2181,zk2:2181,zk3:2181
+    KAFKA_ZOOKEEPER_SESSION_TIMEOUT_MS: 30000
+    KAFKA_ZOOKEEPER_CONNECTION_TIMEOUT_MS: 30000
+    JAVA_TOOL_OPTIONS: -XX:ActiveProcessorCount=2
+    KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,HOST://0.0.0.0:9092
+    KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,HOST:PLAINTEXT
+    KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+    KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    KAFKA_NUM_PARTITIONS: 3
+    KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+    KAFKA_MIN_INSYNC_REPLICAS: 2
+    KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+    KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+    KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    KAFKA_HEAP_OPTS: -Xms256m -Xmx384m
+    KAFKA_JMX_PORT: 9999
+    KAFKA_JMX_HOSTNAME: 0.0.0.0
+  healthcheck:
+    # Evita lanzar una JVM por broker cada diez segundos durante el arranque.
+    test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/29092"]
+    interval: 10s
+    timeout: 5s
+    retries: 18
+
+services:
+  zk1:
+    <<: *zookeeper
+    hostname: zk1
+    environment: { <<: *zk-env, ZOOKEEPER_SERVER_ID: 1 }
+    volumes: [zk1-data:/var/lib/zookeeper]
+  zk2:
+    <<: *zookeeper
+    hostname: zk2
+    environment: { <<: *zk-env, ZOOKEEPER_SERVER_ID: 2 }
+    volumes: [zk2-data:/var/lib/zookeeper]
+  zk3:
+    <<: *zookeeper
+    hostname: zk3
+    environment: { <<: *zk-env, ZOOKEEPER_SERVER_ID: 3 }
+    volumes: [zk3-data:/var/lib/zookeeper]
+
+  broker1:
+    <<: *kafka
+    hostname: broker1
+    environment:
+      <<: *kafka-env
+      KAFKA_BROKER_ID: 1
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://broker1:29092,HOST://${KAFKA_HOST:-127.0.0.1}:9092
+    ports: ["${KAFKA_BIND_IP:-127.0.0.1}:9092:9092"]
+    volumes: [broker1-data:/var/lib/kafka/data]
+  broker2:
+    <<: *kafka
+    hostname: broker2
+    environment:
+      <<: *kafka-env
+      KAFKA_BROKER_ID: 2
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://broker2:29092,HOST://${KAFKA_HOST:-127.0.0.1}:9093
+    ports: ["${KAFKA_BIND_IP:-127.0.0.1}:9093:9092"]
+    volumes: [broker2-data:/var/lib/kafka/data]
+  broker3:
+    <<: *kafka
+    hostname: broker3
+    environment:
+      <<: *kafka-env
+      KAFKA_BROKER_ID: 3
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://broker3:29092,HOST://${KAFKA_HOST:-127.0.0.1}:9094
+    ports: ["${KAFKA_BIND_IP:-127.0.0.1}:9094:9092"]
+    volumes: [broker3-data:/var/lib/kafka/data]
+
+  init-kafka:
+    image: ${KAFKA_IMAGE:-confluentinc/cp-kafka:7.6.0}
+    depends_on: &brokers
+      broker1: { condition: service_healthy }
+      broker2: { condition: service_healthy }
+      broker3: { condition: service_healthy }
+    environment:
+      JAVA_TOOL_OPTIONS: -XX:ActiveProcessorCount=2 -Dkafka.logs.dir=/tmp
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        cub kafka-ready 3 120 -b broker1:29092,broker2:29092,broker3:29092
+        create() {
+          kafka-topics --bootstrap-server broker1:29092,broker2:29092,broker3:29092 \
+            --create --if-not-exists --topic "$$1" --partitions 3 --replication-factor 3 \
+            --config min.insync.replicas=2 --config cleanup.policy=delete --config retention.ms="$$2"
+        }
+        create p360.interacciones.v1 604800000
+        create p360.pagos.v1 2592000000
+
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:v1.4.2
+    restart: unless-stopped
+    depends_on: *brokers
+    ports: ["127.0.0.1:8091:8080"]
+    environment:
+      KAFKA_CLUSTERS_0_NAME: pedidos360
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker1:29092,broker2:29092,broker3:29092
+      KAFKA_CLUSTERS_0_READONLY: "true"
+      JAVA_OPTS: -Xms64m -Xmx256m
+
+volumes:
+  zk1-data:
+  zk2-data:
+  zk3-data:
+  broker1-data:
+  broker2-data:
+  broker3-data:
