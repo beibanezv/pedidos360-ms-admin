@@ -80,3 +80,20 @@ producción. El informe REST de lag incluye las particiones con offset
 confirmado; revisa miembros y asignaciones en Kafka UI para un grupo nuevo.
 Con el clúster local operativo, ejecuta `mvn test` con
 `P360_TEST_KAFKA=true` para las pruebas de administración con broker real.
+
+### Creación desde Kafka UI para la defensa
+
+Kafka UI escucha solo en `127.0.0.1:8091` y abre en modo lectura. Para la
+demostración, ejecuta en `docker/kafka-cluster`:
+
+```powershell
+$env:KAFKA_UI_READ_ONLY = 'false'
+docker compose up -d --no-deps kafka-ui
+```
+
+En **Topics → Add a Topic**, crea `p360.demo.defensa.interacciones` y
+`p360.demo.defensa.pagos` con **3 particiones**, **Replication Factor 3**
+y **Min In Sync Replicas 2**. Elimina solo esos dos tópicos al finalizar.
+Deja la UI en lectura con `$env:KAFKA_UI_READ_ONLY = 'true'` y repite
+`docker compose up -d --no-deps kafka-ui`. No publiques el puerto de la
+interfaz: en AWS accede por túnel privado y habilita escritura solo durante el ensayo.

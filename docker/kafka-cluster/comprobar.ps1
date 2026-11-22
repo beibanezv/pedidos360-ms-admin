@@ -15,6 +15,12 @@ try {
         @($names -match '^broker[1-3]$').Count -ne 3 -or 'kafka-ui' -notin $names) {
         throw 'La topología requiere 3 ZooKeepers, 3 brokers y Kafka UI.'
     }
+    $uiService = $config.services.'kafka-ui'
+    $modoUi = if ($env:KAFKA_UI_READ_ONLY -ceq 'false') { 'false' } else { 'true' }
+    if ($uiService.environment.KAFKA_CLUSTERS_0_READONLY -cne $modoUi -or
+        $uiService.ports[0].host_ip -ne '127.0.0.1') {
+        throw 'Kafka UI debe respetar el modo de demostración y escuchar solo en loopback.'
+    }
     'Compose: 3 ZooKeepers, 3 brokers y Kafka UI'
     if (-not ($EnVivo -or $ConCaida)) { return }
 
