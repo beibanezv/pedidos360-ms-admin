@@ -35,10 +35,10 @@ class KafkaAdminConfig {
     authorities.setAuthorityPrefix("ROLE_");
     var converter = new JwtAuthenticationConverter();
     converter.setJwtGrantedAuthoritiesConverter(authorities);
-    return http.csrf(csrf -> csrf.disable())
+    return http.securityMatcher("/api/kafka/**")
+        .csrf(csrf -> csrf.disable())
         .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-        .authorizeHttpRequests(auth -> auth.requestMatchers("/api/kafka/**").hasRole("Admin")
-            .anyRequest().permitAll())
+        .authorizeHttpRequests(auth -> auth.anyRequest().hasRole("Admin"))
         .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt.decoder(decoder)
             .jwtAuthenticationConverter(converter)))
         .build();

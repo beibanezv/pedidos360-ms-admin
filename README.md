@@ -76,5 +76,7 @@ Usa `KAFKA_BOOTSTRAP_SERVERS` para conectar ms-admin; en local, 9092–9094.
 | DELETE | `/groups/{nombre}` | Elimina un grupo de prueba inactivo |
 
 Los cambios solo permiten nombres `p360.demo.*`; no se toca el historial de
-producción. Con el clúster local operativo, ejecuta `mvn test` con
+producción. El informe REST de lag incluye las particiones con offset
+confirmado; revisa miembros y asignaciones en Kafka UI para un grupo nuevo.
+Con el clúster local operativo, ejecuta `mvn test` con
 `P360_TEST_KAFKA=true` para las pruebas de administración con broker real.
