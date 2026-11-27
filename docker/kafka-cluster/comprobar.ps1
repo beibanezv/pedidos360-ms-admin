@@ -1,6 +1,8 @@
 param([switch]$EnVivo, [switch]$ConCaida)
 
-$ErrorActionPreference = 'Stop'
+# PowerShell 5.1 convierte el stderr de los ejecutables nativos en errores
+# terminantes con 'Stop'. Los fallos reales se comprueban con $LASTEXITCODE.
+$ErrorActionPreference = 'Continue'
 Push-Location $PSScriptRoot
 try {
     function Invoke-Compose {
@@ -58,7 +60,8 @@ try {
             $marker = 'prueba-rf3'
             $marker | & docker compose exec -T broker1 kafka-console-producer --bootstrap-server $bootstrap --topic $testTopic --producer-property acks=all --producer-property request.timeout.ms=3000 --producer-property delivery.timeout.ms=10000
             if ($LASTEXITCODE -ne 0) { throw 'No se pudo producir con un broker detenido.' }
-            $read = Invoke-Compose exec -T broker1 kafka-console-consumer --bootstrap-server $bootstrap --topic $testTopic --from-beginning --max-messages 1 --timeout-ms 10000
+            # Con un broker caído la reelección de líder tarda más: 30 s de margen.
+            $read = Invoke-Compose exec -T broker1 kafka-console-consumer --bootstrap-server $bootstrap --topic $testTopic --from-beginning --max-messages 1 --timeout-ms 30000
             if ($marker -notin $read) { throw 'No se recuperó el mensaje producido con dos réplicas.' }
             'Tolerancia: ISR 2, escritura acks=all y lectura correctas'
         } finally {
