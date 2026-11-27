@@ -35,7 +35,9 @@ class KafkaAdminConfig {
     authorities.setAuthorityPrefix("ROLE_");
     var converter = new JwtAuthenticationConverter();
     converter.setJwtGrantedAuthoritiesConverter(authorities);
-    return http.securityMatcher("/api/kafka/**")
+    // Un solo matcher para ambas APIs de administración: antes Rabbit quedaba
+    // fuera del filtro y cualquier token (o ninguno) llegaba al controller.
+    return http.securityMatcher("/api/kafka/**", "/api/rabbitmq/**")
         .csrf(csrf -> csrf.disable())
         .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(auth -> auth.anyRequest().hasRole("Admin"))
