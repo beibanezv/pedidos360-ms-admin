@@ -1,5 +1,6 @@
 package com.pedidos360.admin.kafka;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import org.apache.kafka.clients.admin.Admin;
@@ -17,6 +18,8 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 class KafkaAdminConfig {
@@ -29,7 +32,8 @@ class KafkaAdminConfig {
   }
 
   @Bean
-  SecurityFilterChain kafkaSecurity(HttpSecurity http, JwtDecoder decoder) throws Exception {
+  SecurityFilterChain kafkaSecurity(HttpSecurity http, JwtDecoder decoder,
+      UrlBasedCorsConfigurationSource cors) throws Exception {
     var authorities = new JwtGrantedAuthoritiesConverter();
     authorities.setAuthoritiesClaimName("roles");
     authorities.setAuthorityPrefix("ROLE_");
@@ -38,12 +42,33 @@ class KafkaAdminConfig {
     // Un solo matcher para ambas APIs de administración: antes Rabbit quedaba
     // fuera del filtro y cualquier token (o ninguno) llegaba al controller.
     return http.securityMatcher("/api/kafka/**", "/api/rabbitmq/**")
+        .cors(c -> c.configurationSource(cors))
         .csrf(csrf -> csrf.disable())
         .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(auth -> auth.anyRequest().hasRole("Admin"))
         .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt.decoder(decoder)
             .jwtAuthenticationConverter(converter)))
         .build();
+  }
+
+  @Bean
+  UrlBasedCorsConfigurationSource corsConfigurationSource(
+      @Value("${cors.allowed-origins:http://localhost:4200}") String origenes) {
+    return configuracionCors(origenes);
+  }
+
+  // Orígenes exactos, sin wildcard ni credenciales; CORS_ALLOWED_ORIGINS llega
+  // por relaxed binding, igual que en los otros microservicios. El preflight del
+  // navegador no trae JWT y debe resolverse antes del filtro de autorización.
+  static UrlBasedCorsConfigurationSource configuracionCors(String origenes) {
+    var config = new CorsConfiguration();
+    config.setAllowedOrigins(Arrays.stream(origenes.split(","))
+        .map(String::trim).filter(s -> !s.isBlank()).toList());
+    config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+    config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+    var source = new UrlBasedCorsConfigurationSource();
+    source.registerCorsConfiguration("/**", config);
+    return source;
   }
 
   @Bean

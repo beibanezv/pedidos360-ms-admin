@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -54,7 +55,10 @@ class RabbitAdminSecurityTest {
 
   @Test
   void crearCola_sinJwt_devuelve401() throws Exception {
-    mvc.perform(cola()).andExpect(status().isUnauthorized());
+    // Origin permitido: CORS no puede abrir la escritura, el POST real sigue exigiendo JWT.
+    mvc.perform(cola().header("Origin", "http://localhost:4200")
+        .header("Content-Type", "application/json"))
+        .andExpect(status().isUnauthorized());
     verifyNoInteractions(admin);
   }
 
@@ -88,7 +92,8 @@ class RabbitAdminSecurityTest {
   @Test
   void eliminarBinding_sinJwt_devuelve401() throws Exception {
     mvc.perform(delete("/api/rabbitmq/bindings").contentType(MediaType.APPLICATION_JSON)
-        .content("{\"cola\":\"c\",\"exchange\":\"e\",\"routingKey\":\"k\"}"))
+        .content("{\"cola\":\"c\",\"exchange\":\"e\",\"routingKey\":\"k\"}")
+        .header("Origin", "http://localhost:4200"))
         .andExpect(status().isUnauthorized());
     verifyNoInteractions(admin);
   }
@@ -139,12 +144,25 @@ class RabbitAdminSecurityTest {
   }
 
   @Test
-  void preflightSinJwt_noSeLiberaPorCors() throws Exception {
-    // No hay configuración CORS en la app: el preflight pasa por el mismo filtro JWT.
+  void preflightDelOrigenPermitido_devuelve200SinLlamarServicios() throws Exception {
+    // El navegador NO envía JWT en el preflight: debe responder CORS, no 401.
     mvc.perform(options("/api/rabbitmq/queues")
-        .header("Origin", "https://origen-de-prueba.invalid")
-        .header("Access-Control-Request-Method", "POST"))
-        .andExpect(status().isUnauthorized());
+        .header("Origin", "http://localhost:4200")
+        .header("Access-Control-Request-Method", "POST")
+        .header("Access-Control-Request-Headers", "Authorization,Content-Type"))
+        .andExpect(status().is2xxSuccessful())
+        .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:4200"));
+    verifyNoInteractions(admin);
+  }
+
+  @Test
+  void preflightDeOtroOrigen_devuelve403SinAllowOrigin() throws Exception {
+    mvc.perform(options("/api/rabbitmq/queues")
+        .header("Origin", "https://origen-no-permitido.invalid")
+        .header("Access-Control-Request-Method", "POST")
+        .header("Access-Control-Request-Headers", "Authorization,Content-Type"))
+        .andExpect(status().isForbidden())
+        .andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
     verifyNoInteractions(admin);
   }
 

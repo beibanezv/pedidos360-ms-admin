@@ -1,10 +1,12 @@
 package com.pedidos360.admin.kafka;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -19,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -72,11 +75,39 @@ class KafkaAdminSecurityTest {
   }
 
   @Test
-  void preflightKafkaSinJwt_devuelve401() throws Exception {
+  void configuracionCorsAceptaVariosOrigenesSinWildcardNiCredenciales() {
+    var fuente = KafkaAdminConfig.configuracionCors(
+        " https://admin-permitido.invalid , http://localhost:4200 ");
+    var config = fuente.getCorsConfiguration(
+        new MockHttpServletRequest("OPTIONS", "/api/rabbitmq/queues"));
+    assertThat(config.getAllowedOrigins())
+        .containsExactly("https://admin-permitido.invalid", "http://localhost:4200");
+    assertThat(config.getAllowedMethods())
+        .containsExactly("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS");
+    assertThat(config.getAllowedHeaders()).containsExactly("Authorization", "Content-Type");
+    assertThat(config.getAllowCredentials()).isNull();
+    assertThat(config.getAllowedOrigins()).doesNotContain("*");
+  }
+
+  @Test
+  void preflightKafkaDelOrigenPermitido_devuelve200SinJwt() throws Exception {
     mvc.perform(options("/api/kafka/topics")
-        .header("Origin", "https://origen-de-prueba.invalid")
-        .header("Access-Control-Request-Method", "GET"))
-        .andExpect(status().isUnauthorized());
+        .header("Origin", "http://localhost:4200")
+        .header("Access-Control-Request-Method", "GET")
+        .header("Access-Control-Request-Headers", "Authorization,Content-Type"))
+        .andExpect(status().is2xxSuccessful())
+        .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:4200"));
+    verifyNoInteractions(rabbit);
+  }
+
+  @Test
+  void preflightKafkaDeOtroOrigen_devuelve403SinAllowOrigin() throws Exception {
+    mvc.perform(options("/api/kafka/topics")
+        .header("Origin", "https://origen-no-permitido.invalid")
+        .header("Access-Control-Request-Method", "GET")
+        .header("Access-Control-Request-Headers", "Authorization,Content-Type"))
+        .andExpect(status().isForbidden())
+        .andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
     verifyNoInteractions(rabbit);
   }
 }
